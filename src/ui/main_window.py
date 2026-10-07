@@ -58,6 +58,7 @@ class MainWindow(QMainWindow):
         self.current_file_path: str | None = None
         self.execution_worker: ExecutionWorker | None = None
         self.ai_worker: AIAnalysisWorker | None = None
+        self.new_action: QAction | None = None
         self.run_action: QAction | None = None
         self.ai_explain_action: QAction | None = None
         self.run_btn: QPushButton | None = None
@@ -194,6 +195,13 @@ class MainWindow(QMainWindow):
         # File Menu
         file_menu = menu_bar.addMenu("&File")
 
+        # New Action
+        self.new_action = QAction("&New File", self)
+        self.new_action.setShortcut(QKeySequence.StandardKey.New)
+        self.new_action.setStatusTip("Create a new blank source code file (Ctrl+N)")
+        self.new_action.triggered.connect(self.new_file)
+        file_menu.addAction(self.new_action)
+
         # Open Action
         open_action = QAction("&Open...", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
@@ -306,6 +314,46 @@ class MainWindow(QMainWindow):
                 self.setWindowTitle(f"{self._base_title} - Untitled{mod_flag}")
             else:
                 self.setWindowTitle(self._base_title)
+
+    def new_file(self):
+        """Creates a new blank document, prompting to save any unsaved changes."""
+        if self.editor and self.editor.document().isModified():
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "The current document has unsaved changes.\n\nDo you want to save your changes before creating a new file?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                if not self.save_file():
+                    return
+            elif reply != QMessageBox.StandardButton.Discard:
+                return
+
+        if self.editor:
+            self.editor.clear()
+            self.editor.document().setModified(False)
+
+        self.current_file_path = None
+        self._user_selected_language = None
+        self._set_combo_language("Python")
+        if self.editor:
+            self.editor.set_language("python")
+
+        self.last_error_info = None
+        self.last_execution_result = None
+        self.last_report = None
+
+        if self.output_panel:
+            self.output_panel.clear_output()
+        if self.ai_panel:
+            self.ai_panel.clear_panel()
+        if self.report_panel:
+            self.report_panel.clear_panel()
+
+        self._update_window_title()
+        self.statusBar().showMessage("New blank file ready", 3000)
 
     def open_file(self):
         """Prompts the user to select and open a source code file."""
