@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         self.execution_worker: ExecutionWorker | None = None
         self.ai_worker: AIAnalysisWorker | None = None
         self.new_action: QAction | None = None
+        self.close_file_action: QAction | None = None
         self.run_action: QAction | None = None
         self.ai_explain_action: QAction | None = None
         self.run_btn: QPushButton | None = None
@@ -209,6 +210,13 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self.open_file)
         file_menu.addAction(open_action)
 
+        # Close File Action
+        self.close_file_action = QAction("&Close File", self)
+        self.close_file_action.setShortcut(QKeySequence("Ctrl+W"))
+        self.close_file_action.setStatusTip("Close the current file (Ctrl+W)")
+        self.close_file_action.triggered.connect(self.close_file)
+        file_menu.addAction(self.close_file_action)
+
         # Save Action
         save_action = QAction("&Save", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
@@ -315,21 +323,33 @@ class MainWindow(QMainWindow):
             else:
                 self.setWindowTitle(self._base_title)
 
+    def _maybe_save_changes(self, action_name: str = "continue") -> bool:
+        """
+        Checks for unsaved changes in the editor.
+        Returns True if safe to proceed (unmodified, saved, or discarded);
+        returns False if the operation should be cancelled.
+        """
+        if not (self.editor and self.editor.document().isModified()):
+            return True
+
+        file_label = os.path.basename(self.current_file_path) if self.current_file_path else "Untitled"
+        reply = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            f"The current document has unsaved changes.\n\nDo you want to save changes to '{file_label}' before you {action_name}?",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if reply == QMessageBox.StandardButton.Save:
+            return self.save_file()
+        elif reply == QMessageBox.StandardButton.Discard:
+            return True
+        return False
+
     def new_file(self):
         """Creates a new blank document, prompting to save any unsaved changes."""
-        if self.editor and self.editor.document().isModified():
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Changes",
-                "The current document has unsaved changes.\n\nDo you want to save your changes before creating a new file?",
-                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Save,
-            )
-            if reply == QMessageBox.StandardButton.Save:
-                if not self.save_file():
-                    return
-            elif reply != QMessageBox.StandardButton.Discard:
-                return
+        if not self._maybe_save_changes(action_name="create a new file"):
+            return
 
         if self.editor:
             self.editor.clear()
@@ -354,6 +374,39 @@ class MainWindow(QMainWindow):
 
         self._update_window_title()
         self.statusBar().showMessage("New blank file ready", 3000)
+
+    def close_file(self) -> bool:
+        """Closes the currently active file, resetting the workspace."""
+        if not self._maybe_save_changes(action_name="close the file"):
+            return False
+
+        old_name = os.path.basename(self.current_file_path) if self.current_file_path else None
+
+        if self.editor:
+            self.editor.clear()
+            self.editor.document().setModified(False)
+
+        self.current_file_path = None
+        self._user_selected_language = None
+        self._set_combo_language("Python")
+        if self.editor:
+            self.editor.set_language("python")
+
+        self.last_error_info = None
+        self.last_execution_result = None
+        self.last_report = None
+
+        if self.output_panel:
+            self.output_panel.clear_output()
+        if self.ai_panel:
+            self.ai_panel.clear_panel()
+        if self.report_panel:
+            self.report_panel.clear_panel()
+
+        self._update_window_title()
+        msg = f"Closed {old_name}" if old_name else "File closed"
+        self.statusBar().showMessage(msg, 3000)
+        return True
 
     def open_file(self):
         """Prompts the user to select and open a source code file."""
